@@ -17,3 +17,7 @@ variable "admin_username" {
 variable "admin_password" {
   default = "P@ssword1234!"
 }
+
+variable "cyclecloud_install_script_url" {
+  default = "https://raw.githubusercontent.com/arjitj-nv/cycle-cloud-test/refs/heads/main/scripts/cyclecloud_install.py"
+}
