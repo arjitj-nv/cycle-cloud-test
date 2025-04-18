@@ -68,7 +68,7 @@ resource "azurerm_linux_virtual_machine" "vm" {
   source_image_reference {
     publisher = "OpenLogic"
     offer     = "CentOS"
-    sku       = "8_5-gen2""
+    sku       = "8_5-gen2"
     version   = "latest"
   }
 
@@ -97,11 +97,12 @@ resource "azurerm_virtual_machine_extension" "install_cyclecloud" {
   publisher            = "Microsoft.Azure.Extensions"
   type                 = "CustomScript"
   type_handler_version = "2.0"
-  depends_on           = [azurerm_linux_virtual_machine.cc_tf_vm]
+  depends_on           = [azurerm_linux_virtual_machine.vm]
 
   settings = <<SETTINGS
     {
-        "commandToExecute": "echo \"Launch Time: \" > /tmp/launch_time  && date >> /tmp/launch_time && curl -k -L -o /tmp/cyclecloud_install.py \"${var.cyclecloud_install_script_url}\" && python3 /tmp/cyclecloud_install.py --acceptTerms --useManagedIdentity --username=${var.cyclecloud_username} --password='${var.cyclecloud_password}' --publickey='${var.cyclecloud_user_publickey}' --storageAccount=${var.cyclecloud_storage_account} --webServerMaxHeapSize=4096M --webServerPort=80 --webServerSslPort=443"
+        "commandToExecute": "echo \"Launch Time: \" > /tmp/launch_time && date >> /tmp/launch_time && curl -k -L -o /tmp/cyclecloud_install.py \"${var.cyclecloud_install_script_url}\" && python3 /tmp/cyclecloud_install.py --acceptTerms --useManagedIdentity --username='azureuser' --publickey='${var.cyclecloud_user_publickey}' --webServerMaxHeapSize=4096M --webServerPort=80 --webServerSslPort=443"
     }
 SETTINGS
 }
+

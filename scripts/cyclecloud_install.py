@@ -36,84 +36,6 @@ def _catch_sys_error(cmd_list):
         print("Output: %s" % e.output)
         raise
 
-def create_user(username):
-    import pwd
-    try:
-        pwd.getpwnam(username)
-    except KeyError:
-        print('Creating user {}'.format(username))
-        _catch_sys_error(["useradd", "-m", "-d", "/home/{}".format(username), username])
-    _catch_sys_error(["chown", "-R", username + ":" + username, "/home/{}".format(username)])
-
-def create_keypair(username, public_key=None):
-    if not os.path.isdir("/home/{}/.ssh".format(username)):
-        _catch_sys_error(["mkdir", "-p", "/home/{}/.ssh".format(username)])
-    public_key_file  = "/home/{}/.ssh/id_rsa.pub".format(username)
-    if not os.path.exists(public_key_file):
-        if public_key:
-            with open(public_key_file, 'w') as pubkeyfile:
-                pubkeyfile.write(public_key)
-                pubkeyfile.write("\n")
-        else:
-            _catch_sys_error(["ssh-keygen", "-f", "/home/{}/.ssh/id_rsa".format(username), "-N", ""])
-            with open(public_key_file, 'r') as pubkeyfile:
-                public_key = pubkeyfile.read()
-
-    authorized_key_file = "/home/{}/.ssh/authorized_keys".format(username)
-    authorized_keys = ""
-    if os.path.exists(authorized_key_file):
-        with open(authorized_key_file, 'r') as authkeyfile:
-            authorized_keys = authkeyfile.read()
-    if public_key not in authorized_keys:
-        with open(authorized_key_file, 'w') as authkeyfile:
-            authkeyfile.write(public_key)
-            authkeyfile.write("\n")
-    _catch_sys_error(["chown", "-R", username + ":" + username, "/home/{}".format(username)])
-    return public_key
-
-def create_user_credential(username, public_key=None):
-    create_user(username)    
-    public_key = create_keypair(username, public_key)
-
-    credential_record = {
-        "PublicKey": public_key,
-        "AdType": "Credential",
-        "CredentialType": "PublicKey",
-        "Name": username + "/public"
-    }
-    credential_data_file = os.path.join(tmpdir, "credential.json")
-    print("Creating cred file: {}".format(credential_data_file))
-    with open(credential_data_file, 'w') as fp:
-        json.dump(credential_record, fp)
-
-    config_path = os.path.join(cycle_root, "config/data/")
-    print("Copying config to {}".format(config_path))
-    copy2(credential_data_file, config_path)
-
-def generate_password_string():
-    random_pw_chars = ([random.choice(ascii_lowercase) for _ in range(20)] +
-                        [random.choice(ascii_uppercase) for _ in range(20)] +
-                        [random.choice(digits) for _ in range(10)])
-    random.shuffle(random_pw_chars)
-    return ''.join(random_pw_chars)
-
-def reset_cyclecloud_pw(username):
-
-    reset_pw = subprocess.Popen( [cs_cmd, "reset_access", username],
-                                stdin=subprocess.PIPE,
-                                stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE, )
-    reset_out, reset_err = reset_pw.communicate( b"yes\n" )
-    print(reset_out)
-    if reset_err:
-        print("Password reset error: %s" % (reset_err))
-    out_split = reset_out.rsplit(None, 1)
-    pw = out_split.pop().decode("utf-8")
-    print("Disabling forced password reseet for {}".format(username))
-    update_cmd = 'update AuthenticatedUser set ForcePasswordReset = false where Name=="%s"' % (username)
-    _catch_sys_error([cs_cmd, 'execute', update_cmd])
-    return pw 
-
   
 def cyclecloud_account_setup(vm_metadata, use_managed_identity, tenant_id, application_id, application_secret,
                              admin_user, azure_cloud, accept_terms, password, storageAccount, no_default_account, 
@@ -141,7 +63,7 @@ def cyclecloud_account_setup(vm_metadata, use_managed_identity, tenant_id, appli
         print('Password specified, using it as the admin password')
         cyclecloud_admin_pw = password
     else:
-        cyclecloud_admin_pw = generate_password_string()
+        cyclecloud_admin_pw = "Aj"
 
     if storageAccount:
         print('Storage account specified, using it as the default locker')
@@ -162,7 +84,6 @@ def cyclecloud_account_setup(vm_metadata, use_managed_identity, tenant_id, appli
         "Name": "azure",
         "Provider": "azure",
         "ProviderId": subscription_id,
-        "RMStorageAccount": storage_account_name,
         "RMStorageContainer": "cyclecloud"
     }
     distribution_method ={
@@ -219,8 +140,6 @@ def cyclecloud_account_setup(vm_metadata, use_managed_identity, tenant_id, appli
 
     # If using a random password, we need to reset it on each container restart (since we regenerated it above)
     # But do is AFTER user is created in CC
-    if not password:
-        cyclecloud_admin_pw = reset_cyclecloud_pw(admin_user)
     initialize_cyclecloud_cli(admin_user, cyclecloud_admin_pw, webserver_port)
 
     if no_default_account:
@@ -256,18 +175,6 @@ def initialize_cyclecloud_cli(admin_user, cyclecloud_admin_pw, webserver_port):
     print("Initializing cylcecloud CLI")
     _catch_sys_error(["/usr/local/bin/cyclecloud", "initialize", "--loglevel=debug", "--batch", "--force",
                       "--url=https://localhost:{}".format(webserver_port), "--verify-ssl=false", "--username=%s" % admin_user, password_flag])
-
-
-def letsEncrypt(fqdn):
-    sleep(60)
-    try:
-        cmd_list = [cs_cmd, "keystore", "automatic", "--accept-terms", fqdn]
-        output = check_output(cmd_list)
-        print(cmd_list)
-        print(output)
-    except CalledProcessError as e:
-        print("Error getting SSL cert from Lets Encrypt")
-        print("Proceeding with self-signed cert")
 
 
 def get_vm_metadata():
@@ -382,10 +289,7 @@ def modify_cs_config(options):
     _catch_sys_error(["chown", "-R", "cycle_server.", cycle_root])
 
 def install_cc_cli():
-    # CLI comes with an install script but that installation is user specific
-    # rather than system wide.
-    # Downloading and installing pip, then using that to install the CLIs
-    # from source.
+    # Check if CycleCloud CLI is already installed
     if os.path.exists("/usr/local/bin/cyclecloud"):
         print("CycleCloud CLI already installed.")
         return
@@ -493,7 +397,7 @@ def main():
 
     parser.add_argument("--username",
                         dest="username",
-                        default="cc_admin",
+                        default="azureuser",
                         help="The local admin user for the CycleCloud VM")
 
     parser.add_argument("--hostname",

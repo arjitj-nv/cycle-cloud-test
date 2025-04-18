@@ -21,3 +21,8 @@ variable "admin_password" {
 variable "cyclecloud_install_script_url" {
   default = "https://raw.githubusercontent.com/arjitj-nv/cycle-cloud-test/refs/heads/main/scripts/cyclecloud_install.py"
 }
+
+variable "cyclecloud_user_publickey" {
+  description = "The public key for CycleCloud user"
+  type        = string
+}
